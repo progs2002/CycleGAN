@@ -72,4 +72,32 @@ class Generator(nn.Module):
         x = self.layers2(x)
         return x
 
+class Layer_C(nn.Module):
+    def __init__(self, k, stride=2, padding=0, norm=True):
+        super().__init__()
+        self.conv = nn.LazyConv2d(k,(4,4),stride=stride,padding=padding)
+        if norm:
+            self.instance_norm = nn.InstanceNorm2d(k)
+        else:
+            self.instance_norm = nn.Identity()
+        self.act = nn.LeakyReLU(0.2)
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.instance_norm(x)
+        x = self.act(x)
+        return x
 
+class Discriminator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layers = nn.Sequential(
+            Layer_C(64,2,1,norm=False),
+            Layer_C(128,2,1),
+            Layer_C(256,2,1),
+            Layer_C(512,1,1),
+            Layer_C(1,1,1),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        x = self.layers(x)
+        return x

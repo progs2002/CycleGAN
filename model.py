@@ -1,103 +1,93 @@
 import torch 
 import torch.nn as nn 
 
-class Layer_c7s1(nn.Module):
-    def __init__(self, k):
+class Conv_Block(nn.Module):
+    def __init__(self, in_channels, out_channels, k, stride=1, padding=0):
         super().__init__()
-        self.conv = nn.LazyConv2d(k,(7,7),stride=1,padding=3)
-        self.instance_norm = nn.InstanceNorm2d(k)
+        self.layers = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, k, stride=stride ,padding=padding),
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
     def forward(self, x):
-        x = self.conv(x)
-        x = self.instance_norm(x)
-        x = torch.relu(x)
+        x = self.layers(x)
         return x
 
-class Layer_d(nn.Module):
-    def __init__(self, k):
+class Residual_Block(nn.Module):
+    def __init__(self, channels):
         super().__init__()
-        self.conv = nn.LazyConv2d(k,(3,3),stride=2,padding=1)
-        self.instance_norm = nn.InstanceNorm2d(k)
+        self.layers = nn.Sequential(
+            Conv_Block(channels, channels, 3, 1, 1),
+            Conv_Block(channels, channels, 3, 1, 1)
+        )
     def forward(self, x):
-        x = self.conv(x)
-        x = self.instance_norm(x)
-        x = torch.relu(x)
-        return x
+        return x + self.layers(x)
 
-class Layer_R(nn.Module):
-    def __init__(self, k):
+class Conv_Transpose_Block(nn.Module):
+    def __init__(self, in_channels, out_channels, k, stride=1, padding=0, output_padding=1):
         super().__init__()
-        self.conv = nn.LazyConv2d(k,(3,3),padding=1)
-        self.instance_norm = nn.InstanceNorm2d(k)
+        self.layers = nn.Sequential(
+            nn.ConvTranspose2d(in_channels, out_channels, k, stride, padding, output_padding),
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
     def forward(self, x):
-        residual = x
-        x = self.conv(x)
-        x = self.instance_norm(x)
-        x = torch.relu(x)
-        x = self.conv(x)
-        x = self.instance_norm(x)
-        x = torch.relu(x)
-        x += residual
-        return x
-
-class Layer_u(nn.Module):
-    def __init__(self,k):
-        super().__init__()
-        self.conv = nn.LazyConvTranspose2d(k,(3,3),stride=2,padding=1,output_padding=1)
-        self.instance_norm = nn.InstanceNorm2d(k)
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.instance_norm(x)
-        x = torch.relu(x)
+        x = self.layers(x)
         return x
 
 class Generator(nn.Module):
     def __init__(self, num_residual_blocks):
         super().__init__()
         self.num_residual_blocks = num_residual_blocks
-        self.layers1 = nn.Sequential(
-            Layer_c7s1(64),
-            Layer_d(128),
-            Layer_d(256)
+        self.up = nn.Sequential(
+            Conv_Block(3,64,7,1,3),
+            Conv_Block(64,128,3,2,1),
+            Conv_Block(128,256,3,2,1)
         )
-        self.residual = Layer_R(256)
-        self.layers2 = nn.Sequential(
-            Layer_u(128),
-            Layer_u(64),
-            Layer_c7s1(3)
+        self.residual = nn.Sequential(*[Residual_Block(256) for _ in range(self.num_residual_blocks)])
+        self.down = nn.Sequential(
+            Conv_Transpose_Block(256,128,3,2,1,1),
+            Conv_Transpose_Block(128,64,3,2,1,1),
+            Conv_Block(64,3,7,1,3)
         )
     def forward(self, x):
-        x = self.layers1(x)
-        for _ in range(self.num_residual_blocks):
-            x = self.residual(x)
-        x = self.layers2(x)
+        x = self.up(x)
+        x = self.residual(x)
+        x = self.down(x)
         return x
 
-class Layer_C(nn.Module):
-    def __init__(self, k, stride=2, padding=0, norm=True):
+class Discriminator_Block(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=2, padding=1, norm=True):
         super().__init__()
-        self.conv = nn.LazyConv2d(k,(4,4),stride=stride,padding=padding)
-        if norm:
-            self.instance_norm = nn.InstanceNorm2d(k)
-        else:
-            self.instance_norm = nn.Identity()
-        self.act = nn.LeakyReLU(0.2)
+        self.layers = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 4, stride, padding),
+            nn.InstanceNorm2d(out_channels) if norm else nn.Identity(),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        
     def forward(self, x):
-        x = self.conv(x)
-        x = self.instance_norm(x)
-        x = self.act(x)
+        x = self.layers(x)
         return x
 
 class Discriminator(nn.Module):
     def __init__(self):
         super().__init__()
         self.layers = nn.Sequential(
-            Layer_C(64,2,1,norm=False),
-            Layer_C(128,2,1),
-            Layer_C(256,2,1),
-            Layer_C(512,1,1),
-            Layer_C(1,1,1),
-            nn.Sigmoid()
+            Discriminator_Block(3,64,2,1,norm=False),
+            Discriminator_Block(64,128,2,1),
+            Discriminator_Block(128,256,2,1),
+            Discriminator_Block(256,512,1,1),
+            Discriminator_Block(512,1,1,1),
         )
     def forward(self, x):
         x = self.layers(x)
+        x = torch.sigmoid(x)
         return x
+
+def validate(a):
+    D = Discriminator()
+    G = Generator(9)
+    print(D(a).shape)
+    print(G(a).shape)
+
+validate(torch.randn(1,3,256,256))

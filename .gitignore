@@ -2,3 +2,6 @@
 __pycache__/
 dataset/
 logs/
+weights/
+gen_monets/
+assets/

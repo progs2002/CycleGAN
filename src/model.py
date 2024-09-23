@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class G_down_block(nn.Module):
     def __init__(self, in_channels, out_channels, norm=True):
         super().__init__()
@@ -27,13 +28,13 @@ class G_up_block(nn.Module):
     def __init__(self, in_channels, out_channels, dropout=False, act="leaky-relu"):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.ConvTranspose2d(
+            nn.UpsamplingNearest2d(scale_factor=2),
+            nn.Conv2d(
                 in_channels, 
                 out_channels, 
-                kernel_size=4, 
-                stride=2, 
+                kernel_size=3, 
                 padding=1,
-                output_padding=0
+                padding_mode="reflect"
             )
         )
         
@@ -104,11 +105,10 @@ class Discriminator(nn.Module):
     
     def forward(self, x):
         return self.layers(x)
-
+    
 class CycleGAN(nn.Module):
     def __init__(self):
         super().__init__()
-        
         self.photo_G = Generator()
         self.photo_D = Discriminator()
         
@@ -136,18 +136,11 @@ class CycleGAN(nn.Module):
     def photo_to_monet(self, photo):
         self.monet_G.eval()
         with torch.no_grad():
-            photo = torch.unsqueeze(photo, 0)
             out = self.monet_G(photo)
         return out
     
     def monet_to_photo(self, monet):
         self.photo_G.eval()
         with torch.no_grad():
-            monet = torch.unsqueeze(monet, 0)
             out = self.photo_G(monet)
         return out
-
-
-gen = Generator()
-test = torch.randn(1,3,256,256)
-print(gen(test).shape)

@@ -5,3 +5,4 @@ logs/
 weights/
 gen_monets/
 assets/
+.python-version
